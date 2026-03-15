@@ -14,8 +14,8 @@ ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY", "")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
 
 # Data sources
+FMP_API_KEY = os.getenv("FMP_API_KEY", "")
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
-QUIVER_API_KEY = os.getenv("QUIVER_API_KEY", "")
 
 # App settings
 DB_PATH = os.getenv("DB_PATH", "data/congress.db")
