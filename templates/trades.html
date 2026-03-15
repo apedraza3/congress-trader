@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Trades</h1>
+    <div class="header-actions">
+        <select id="filterStatus" class="select-sm">
+            <option value="">All</option>
+            <option value="open">Open</option>
+            <option value="closed">Closed</option>
+        </select>
+    </div>
+</div>
+
+<div class="stats-strip">
+    <div class="stat-box"><span class="stat-value" id="openCount">0</span><span class="stat-label">Open Positions</span></div>
+    <div class="stat-box"><span class="stat-value" id="totalPnl">--</span><span class="stat-label">Total P&L</span></div>
+    <div class="stat-box"><span class="stat-value" id="winRate">--</span><span class="stat-label">Win Rate</span></div>
+    <div class="stat-box"><span class="stat-value" id="avgReturn">--</span><span class="stat-label">Avg Return</span></div>
+</div>
+
+<div id="tradesTable">
+    <div class="loading">Loading trades...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var filterStatus = document.getElementById('filterStatus');
+
+    function loadTrades() {
+        var params = new URLSearchParams();
+        if (filterStatus.value) params.set('status', filterStatus.value);
+
+        apiFetch('/api/trades?' + params.toString()).then(function(trades) {
+            renderTrades(trades);
+        });
+
+        apiFetch('/api/analytics').then(function(a) {
+            document.getElementById('openCount').textContent = a.open_positions || 0;
+            var pnl = a.total_pnl || 0;
+            var pnlEl = document.getElementById('totalPnl');
+            pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2);
+            pnlEl.className = 'stat-value ' + (pnl >= 0 ? 'text-green' : 'text-red');
+            document.getElementById('winRate').textContent = a.win_rate != null ? a.win_rate.toFixed(1) + '%' : '--';
+            document.getElementById('avgReturn').textContent = a.avg_return_pct != null ? formatPct(a.avg_return_pct) : '--';
+        });
+    }
+
+    function renderTrades(trades) {
+        var container = document.getElementById('tradesTable');
+        if (!trades.length) {
+            container.innerHTML = '<div class="empty-state">No trades yet. Execute trades from the Feed page.</div>';
+            return;
+        }
+
+        var html = '<table class="data-table"><thead><tr>' +
+            '<th>Ticker</th><th>Politician</th><th>Entry</th><th>Current/Exit</th>' +
+            '<th>Qty</th><th>P&L</th><th>Status</th><th>Actions</th>' +
+            '</tr></thead><tbody>';
+
+        trades.forEach(function(t) {
+            var pnl = t.pnl || 0;
+            var pnlClass = pnl >= 0 ? 'text-green' : 'text-red';
+            var statusBadge = t.status === 'open' ? 'badge-green' : 'badge-yellow';
+
+            html += '<tr>' +
+                '<td><strong>' + esc(t.ticker) + '</strong></td>' +
+                '<td>' + esc(t.politician_name || '--') + '</td>' +
+                '<td>' + formatMoney(t.entry_price) + '<br><small class="text-muted">' + formatDate(t.entry_date) + '</small></td>' +
+                '<td>' + formatMoney(t.exit_price || t.current_price) + '</td>' +
+                '<td>' + (t.quantity || '--') + '</td>' +
+                '<td class="' + pnlClass + '">' + (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2) + '</td>' +
+                '<td><span class="badge ' + statusBadge + '">' + t.status.toUpperCase() + '</span></td>' +
+                '<td>' + (t.status === 'open' ? '<button class="btn btn-sm btn-danger" onclick="closeTrade(' + t.id + ')">Close</button>' : '') + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    window.closeTrade = function(id) {
+        if (!confirm('Close this position?')) return;
+        apiFetch('/api/trades/' + id + '/close', {method: 'POST'}).then(function(r) {
+            if (r.error) { alert('Error: ' + r.error); return; }
+            alert('Position closed. P&L: $' + (r.pnl || 0).toFixed(2));
+            loadTrades();
+        });
+    };
+
+    filterStatus.addEventListener('change', loadTrades);
+    loadTrades();
+})();
+</script>
+{% endblock %}

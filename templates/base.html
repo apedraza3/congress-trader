@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Congress Trader</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/>
+            </svg>
+            <span>Congress Trader</span>
+        </div>
+        <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">Feed</a>
+        <a href="/trades" class="nav-link {% if request.path == '/trades' %}active{% endif %}">Trades</a>
+        <a href="/politicians" class="nav-link {% if request.path == '/politicians' %}active{% endif %}">Politicians</a>
+        <a href="/analytics" class="nav-link {% if request.path == '/analytics' %}active{% endif %}">Analytics</a>
+        <a href="/settings" class="nav-link {% if request.path == '/settings' %}active{% endif %}">Settings</a>
+        <div class="nav-spacer"></div>
+        <div class="status-bar" id="statusBar"></div>
+        <a href="/logout" class="nav-link nav-logout">Logout</a>
+    </nav>
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

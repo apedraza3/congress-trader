@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Settings</h1>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-title">Risk Filters</div>
+        <div class="form-group">
+            <label>Max Reporting Delay (days)</label>
+            <input type="number" id="maxDelay" min="1" max="45">
+        </div>
+        <div class="form-group">
+            <label>Min Trade Amount ($)</label>
+            <input type="number" id="minAmount" min="0" step="1000">
+        </div>
+        <div class="form-group">
+            <label>Max Price Change Since Trade (%)</label>
+            <input type="number" id="maxPriceChange" min="0" step="0.5">
+        </div>
+        <div class="form-group">
+            <label>Min Politician Win Rate (%)</label>
+            <input type="number" id="minWinRate" min="0" max="100" step="5">
+        </div>
+        <button class="btn btn-primary" id="saveFilters">Save Filters</button>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Position Sizing</div>
+        <div class="form-group">
+            <label>Max Position Size (% of portfolio)</label>
+            <input type="number" id="maxPositionPct" min="1" max="25" step="0.5">
+        </div>
+        <div class="form-group">
+            <label>Stop-Loss (%)</label>
+            <input type="number" id="stopLossPct" min="1" max="50" step="0.5">
+        </div>
+        <div class="form-group">
+            <label>Hold Period (days)</label>
+            <input type="number" id="holdDays" min="1" max="365">
+        </div>
+        <div class="form-group">
+            <label>Max Open Positions</label>
+            <input type="number" id="maxPositions" min="1" max="50">
+        </div>
+        <button class="btn btn-primary" id="savePositions">Save Position Rules</button>
+    </div>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-title">API Keys</div>
+        <div class="form-group">
+            <label>Alpaca API Key</label>
+            <input type="password" id="alpacaKey" placeholder="Set in .env file">
+        </div>
+        <div class="form-group">
+            <label>Alpaca Secret Key</label>
+            <input type="password" id="alpacaSecret" placeholder="Set in .env file">
+        </div>
+        <div class="form-group">
+            <label>Finnhub API Key</label>
+            <input type="password" id="finnhubKey" placeholder="Set in .env file">
+        </div>
+        <p class="text-muted" style="font-size:12px;">API keys are configured via environment variables (.env file). These fields show connection status only.</p>
+        <button class="btn" id="testConnections">Test Connections</button>
+        <span id="connStatus" style="margin-left:10px;font-size:13px;"></span>
+    </div>
+
+    <div class="card">
+        <div class="card-title">Data Management</div>
+        <div class="form-group">
+            <label>Auto-Refresh Interval</label>
+            <select id="pollInterval">
+                <option value="1">Every 1 hour</option>
+                <option value="2">Every 2 hours</option>
+                <option value="4">Every 4 hours</option>
+                <option value="6">Every 6 hours</option>
+                <option value="12">Every 12 hours</option>
+            </select>
+        </div>
+        <button class="btn" id="saveData">Save Data Settings</button>
+        <hr style="border-color:var(--border);margin:16px 0;">
+        <div class="card-title">Database</div>
+        <p class="text-muted" style="font-size:13px;margin-bottom:12px;">
+            <span id="dbDisclosures">--</span> disclosures, <span id="dbTrades">--</span> trades, <span id="dbPoliticians">--</span> politicians
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    function loadSettings() {
+        apiFetch('/api/settings').then(function(s) {
+            document.getElementById('maxDelay').value = s.max_reporting_delay_days || 3;
+            document.getElementById('minAmount').value = s.min_trade_amount || 15000;
+            document.getElementById('maxPriceChange').value = s.max_price_change_pct || 5;
+            document.getElementById('minWinRate').value = s.min_politician_win_rate || 60;
+            document.getElementById('maxPositionPct').value = s.max_position_pct || 5;
+            document.getElementById('stopLossPct').value = s.stop_loss_pct || 8;
+            document.getElementById('holdDays').value = s.hold_days || 45;
+            document.getElementById('maxPositions').value = s.max_open_positions || 15;
+            document.getElementById('pollInterval').value = s.poll_interval_hours || 2;
+        });
+
+        apiFetch('/api/status').then(function(s) {
+            document.getElementById('dbDisclosures').textContent = s.disclosures || 0;
+            document.getElementById('dbTrades').textContent = s.trades || 0;
+            document.getElementById('dbPoliticians').textContent = s.politicians || 0;
+
+            if (s.alpaca_connected) {
+                document.getElementById('alpacaKey').placeholder = 'Connected';
+            }
+        });
+    }
+
+    document.getElementById('saveFilters').addEventListener('click', function() {
+        apiFetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                max_reporting_delay_days: parseInt(document.getElementById('maxDelay').value),
+                min_trade_amount: parseInt(document.getElementById('minAmount').value),
+                max_price_change_pct: parseFloat(document.getElementById('maxPriceChange').value),
+                min_politician_win_rate: parseFloat(document.getElementById('minWinRate').value)
+            })
+        }).then(function() { alert('Filters saved.'); });
+    });
+
+    document.getElementById('savePositions').addEventListener('click', function() {
+        apiFetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                max_position_pct: parseFloat(document.getElementById('maxPositionPct').value),
+                stop_loss_pct: parseFloat(document.getElementById('stopLossPct').value),
+                hold_days: parseInt(document.getElementById('holdDays').value),
+                max_open_positions: parseInt(document.getElementById('maxPositions').value)
+            })
+        }).then(function() { alert('Position rules saved.'); });
+    });
+
+    document.getElementById('saveData').addEventListener('click', function() {
+        apiFetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                poll_interval_hours: parseInt(document.getElementById('pollInterval').value)
+            })
+        }).then(function() { alert('Data settings saved.'); });
+    });
+
+    document.getElementById('testConnections').addEventListener('click', function() {
+        var status = document.getElementById('connStatus');
+        status.textContent = 'Testing...';
+        apiFetch('/api/status').then(function(s) {
+            var parts = [];
+            parts.push('Alpaca: ' + (s.alpaca_connected ? 'OK' : 'FAIL'));
+            parts.push('DB: ' + s.disclosures + ' disclosures');
+            status.textContent = parts.join(' | ');
+            status.className = s.alpaca_connected ? 'text-green' : 'text-red';
+        });
+    });
+
+    loadSettings();
+})();
+</script>
+{% endblock %}

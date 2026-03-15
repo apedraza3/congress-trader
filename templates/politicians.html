@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Politicians</h1>
+    <div class="header-actions">
+        <select id="filterChamber" class="select-sm">
+            <option value="">All Chambers</option>
+            <option value="House">House</option>
+            <option value="Senate">Senate</option>
+        </select>
+        <select id="sortBy" class="select-sm">
+            <option value="win_rate">Win Rate</option>
+            <option value="total_trades">Most Trades</option>
+            <option value="avg_return">Avg Return</option>
+        </select>
+    </div>
+</div>
+
+<div class="stats-strip">
+    <div class="stat-box"><span class="stat-value" id="totalPoliticians">0</span><span class="stat-label">Politicians Tracked</span></div>
+    <div class="stat-box"><span class="stat-value" id="avgWinRate">--</span><span class="stat-label">Avg Win Rate</span></div>
+    <div class="stat-box"><span class="stat-value" id="topTrader">--</span><span class="stat-label">Top Trader</span></div>
+    <div class="stat-box"><span class="stat-value" id="fastestFiler">--</span><span class="stat-label">Fastest Filer</span></div>
+</div>
+
+<div id="politicianList">
+    <div class="loading">Loading politicians...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var filterChamber = document.getElementById('filterChamber');
+    var sortBy = document.getElementById('sortBy');
+
+    function load() {
+        apiFetch('/api/politicians').then(function(politicians) {
+            var chamber = filterChamber.value;
+            if (chamber) {
+                politicians = politicians.filter(function(p) { return p.chamber === chamber; });
+            }
+
+            var sort = sortBy.value;
+            politicians.sort(function(a, b) {
+                if (sort === 'win_rate') return (b.win_rate || 0) - (a.win_rate || 0);
+                if (sort === 'total_trades') return (b.total_trades || 0) - (a.total_trades || 0);
+                if (sort === 'avg_return') return (b.avg_return_pct || 0) - (a.avg_return_pct || 0);
+                return 0;
+            });
+
+            document.getElementById('totalPoliticians').textContent = politicians.length;
+
+            if (politicians.length) {
+                var totalWr = politicians.reduce(function(s, p) { return s + (p.win_rate || 0); }, 0);
+                document.getElementById('avgWinRate').textContent = (totalWr / politicians.length).toFixed(1) + '%';
+                document.getElementById('topTrader').textContent = politicians[0].name || '--';
+
+                var fastest = politicians.slice().sort(function(a, b) { return (a.avg_delay_days || 99) - (b.avg_delay_days || 99); });
+                document.getElementById('fastestFiler').textContent = fastest[0].name || '--';
+            }
+
+            render(politicians);
+        });
+    }
+
+    function render(politicians) {
+        var container = document.getElementById('politicianList');
+        if (!politicians.length) {
+            container.innerHTML = '<div class="empty-state">No politician data yet. Refresh disclosures from the Feed page.</div>';
+            return;
+        }
+
+        var html = '<table class="data-table"><thead><tr>' +
+            '<th>#</th><th>Name</th><th>Party</th><th>Chamber</th><th>Trades</th>' +
+            '<th>Win Rate</th><th>Avg Return</th><th>Avg Delay</th>' +
+            '</tr></thead><tbody>';
+
+        politicians.forEach(function(p, i) {
+            var rankClass = i < 3 ? 'rank-' + (i + 1) : '';
+            var wrClass = (p.win_rate || 0) >= 60 ? 'text-green' : (p.win_rate || 0) >= 40 ? 'text-yellow' : 'text-red';
+            var partyColor = p.party === 'Republican' ? 'text-red' : p.party === 'Democrat' ? 'text-green' : 'text-muted';
+
+            html += '<tr>' +
+                '<td><span class="rank-badge ' + rankClass + '">' + (i + 1) + '</span></td>' +
+                '<td><strong>' + esc(p.name) + '</strong>' + (p.state ? '<br><small class="text-muted">' + esc(p.state) + '</small>' : '') + '</td>' +
+                '<td class="' + partyColor + '">' + esc(p.party || '--') + '</td>' +
+                '<td>' + esc(p.chamber || '--') + '</td>' +
+                '<td>' + (p.total_trades || 0) + '</td>' +
+                '<td class="' + wrClass + '">' + (p.win_rate != null ? p.win_rate.toFixed(1) + '%' : '--') + '</td>' +
+                '<td>' + (p.avg_return_pct != null ? formatPct(p.avg_return_pct) : '--') + '</td>' +
+                '<td>' + (p.avg_delay_days != null ? p.avg_delay_days.toFixed(1) + 'd' : '--') + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    filterChamber.addEventListener('change', load);
+    sortBy.addEventListener('change', load);
+    load();
+})();
+</script>
+{% endblock %}

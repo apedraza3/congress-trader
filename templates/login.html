@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Congress Trader — Login</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="login-body">
+    <div class="login-card">
+        <div class="login-logo">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 4-6"/>
+            </svg>
+        </div>
+        <h1>Congress Trader</h1>
+        <p>Sign in to access your dashboard</p>
+        {% if error %}<div class="login-error">{{ error }}</div>{% endif %}
+        <form method="POST">
+            <label>PASSWORD</label>
+            <input type="password" name="password" autofocus>
+            <button type="submit" class="btn btn-primary">Sign In</button>
+        </form>
+    </div>
+</body>
+</html>

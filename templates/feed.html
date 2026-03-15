@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Disclosure Feed</h1>
+    <div class="header-actions">
+        <select id="filterType" class="select-sm">
+            <option value="">All Types</option>
+            <option value="purchase">Purchases Only</option>
+            <option value="sale_partial">Partial Sales</option>
+            <option value="sale_full">Full Sales</option>
+        </select>
+        <select id="filterScore" class="select-sm">
+            <option value="0">All Scores</option>
+            <option value="50">Score 50+</option>
+            <option value="70">Score 70+</option>
+            <option value="80">Score 80+</option>
+        </select>
+        <button class="btn btn-primary" id="refreshBtn">Refresh Data</button>
+    </div>
+</div>
+
+<div class="stats-strip">
+    <div class="stat-box"><span class="stat-value" id="totalDisclosures">0</span><span class="stat-label">Total Filings</span></div>
+    <div class="stat-box"><span class="stat-value" id="passingCount">0</span><span class="stat-label">Passing Filters</span></div>
+    <div class="stat-box"><span class="stat-value" id="avgDelay">--</span><span class="stat-label">Avg Delay (days)</span></div>
+    <div class="stat-box"><span class="stat-value" id="alpacaStatus">--</span><span class="stat-label">Alpaca</span></div>
+</div>
+
+<div class="feed-list" id="feedList">
+    <div class="loading">Loading disclosures...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    var filterType = document.getElementById('filterType');
+    var filterScore = document.getElementById('filterScore');
+    var refreshBtn = document.getElementById('refreshBtn');
+
+    function loadFeed() {
+        var params = new URLSearchParams();
+        if (filterType.value) params.set('tx_type', filterType.value);
+        if (filterScore.value !== '0') params.set('min_score', filterScore.value);
+        params.set('limit', '100');
+
+        apiFetch('/api/disclosures?' + params.toString()).then(function(data) {
+            renderFeed(data);
+        });
+
+        apiFetch('/api/status').then(function(s) {
+            document.getElementById('totalDisclosures').textContent = s.disclosures;
+            document.getElementById('alpacaStatus').textContent = s.alpaca_connected ? 'Connected' : 'Offline';
+            document.getElementById('alpacaStatus').className = 'stat-value ' + (s.alpaca_connected ? 'text-green' : 'text-red');
+        });
+    }
+
+    function renderFeed(items) {
+        var list = document.getElementById('feedList');
+        if (!items.length) {
+            list.innerHTML = '<div class="empty-state">No disclosures found. Click "Refresh Data" to fetch.</div>';
+            return;
+        }
+
+        var passing = items.filter(function(d) { return d.risk_score >= 70; });
+        document.getElementById('passingCount').textContent = passing.length;
+
+        var totalDelay = items.reduce(function(s, d) { return s + (d.reporting_delay_days || 0); }, 0);
+        document.getElementById('avgDelay').textContent = items.length ? (totalDelay / items.length).toFixed(1) : '--';
+
+        var html = '';
+        items.forEach(function(d) {
+            var delayClass = d.reporting_delay_days <= 1 ? 'badge-green' :
+                             d.reporting_delay_days <= 3 ? 'badge-yellow' : 'badge-red';
+            var scoreClass = d.risk_score >= 80 ? 'badge-green' :
+                             d.risk_score >= 50 ? 'badge-yellow' : 'badge-red';
+            var typeLabel = d.tx_type === 'purchase' ? 'BUY' :
+                            d.tx_type.includes('sale') ? 'SELL' : d.tx_type.toUpperCase();
+            var typeClass = d.tx_type === 'purchase' ? 'type-buy' : 'type-sell';
+            var amountStr = d.amount_min >= 1000000 ? '$' + (d.amount_min/1000000).toFixed(1) + 'M+' :
+                            d.amount_min >= 1000 ? '$' + (d.amount_min/1000).toFixed(0) + 'K+' : '$' + d.amount_min;
+            var priceStr = d.price_change_pct ? (d.price_change_pct > 0 ? '+' : '') + d.price_change_pct.toFixed(1) + '%' : '--';
+            var priceClass = d.price_change_pct > 5 ? 'text-red' : d.price_change_pct > 0 ? 'text-green' : 'text-muted';
+
+            html += '<div class="feed-card">' +
+                '<div class="feed-top">' +
+                    '<div class="feed-ticker"><span class="' + typeClass + '">' + typeLabel + '</span> <strong>' + esc(d.ticker) + '</strong></div>' +
+                    '<div class="feed-badges">' +
+                        '<span class="badge ' + delayClass + '">' + d.reporting_delay_days + 'd delay</span>' +
+                        '<span class="badge ' + scoreClass + '">Score: ' + d.risk_score + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="feed-details">' +
+                    '<div><span class="detail-label">Politician</span><span>' + esc(d.politician_name) + '</span></div>' +
+                    '<div><span class="detail-label">Amount</span><span>' + amountStr + '</span></div>' +
+                    '<div><span class="detail-label">Trade Date</span><span>' + d.trade_date + '</span></div>' +
+                    '<div><span class="detail-label">Filed</span><span>' + d.filing_date + '</span></div>' +
+                    '<div><span class="detail-label">Price Change</span><span class="' + priceClass + '">' + priceStr + '</span></div>' +
+                '</div>' +
+                '<div class="feed-actions">' +
+                    (d.risk_score >= 70 && d.tx_type === 'purchase' ?
+                        '<button class="btn btn-sm btn-primary" onclick="executeTrade(' + d.id + ')">Execute Trade</button>' : '') +
+                    '<button class="btn btn-sm" onclick="rescore(' + d.id + ')">Re-score</button>' +
+                '</div>' +
+            '</div>';
+        });
+        list.innerHTML = html;
+    }
+
+    window.executeTrade = function(id) {
+        if (!confirm('Execute paper trade for this disclosure?')) return;
+        apiFetch('/api/trades/execute', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({disclosure_id: id})
+        }).then(function(r) {
+            if (r.error) { alert('Error: ' + r.error); return; }
+            alert('Trade submitted! ID: ' + r.trade_id);
+            loadFeed();
+        });
+    };
+
+    window.rescore = function(id) {
+        apiFetch('/api/disclosures/' + id + '/score', {method: 'POST'}).then(function(r) {
+            alert('Score: ' + r.score + (r.passed ? ' (PASS)' : ' (FAIL)') +
+                  '\n' + r.reasons.join('\n') +
+                  (r.fail_reasons.length ? '\n\nFailed:\n' + r.fail_reasons.join('\n') : ''));
+            loadFeed();
+        });
+    };
+
+    refreshBtn.addEventListener('click', function() {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Fetching...';
+        apiFetch('/api/disclosures/refresh', {method: 'POST'}).then(function(r) {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'Refresh Data';
+            alert('Found ' + r.new_disclosures + ' new disclosures, ' + r.passing_trades + ' passing filters');
+            loadFeed();
+        }).catch(function() {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'Refresh Data';
+        });
+    });
+
+    filterType.addEventListener('change', loadFeed);
+    filterScore.addEventListener('change', loadFeed);
+
+    loadFeed();
+})();
+</script>
+{% endblock %}

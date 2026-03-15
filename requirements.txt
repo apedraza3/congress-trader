@@ -1,0 +1,9 @@
+flask==3.1.0
+python-dotenv==1.0.1
+requests==2.32.3
+gunicorn==23.0.0
+alpaca-trade-api==3.2.0
+yfinance==0.2.54
+apscheduler==3.10.4
+beautifulsoup4==4.12.3
+lxml==5.3.1
