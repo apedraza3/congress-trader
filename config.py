@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
-AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "admin")
+SECRET_KEY = os.getenv("SECRET_KEY", os.urandom(24).hex())
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "")
 
 # Alpaca
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY", "")
