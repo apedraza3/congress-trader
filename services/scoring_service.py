@@ -4,7 +4,7 @@ import logging
 
 import config
 from services import db
-from services.market_service import get_price_change_pct
+from services.market_service import get_price_change_pct, get_technical_signals
 
 logger = logging.getLogger(__name__)
 
@@ -12,29 +12,59 @@ logger = logging.getLogger(__name__)
 def score_disclosure(disclosure):
     """Score a disclosure based on risk filters.
 
+    6-factor scoring system (0-100):
+      1. Reporting delay      (max 35 pts)
+      2. Transaction type      (10 pts, pass/fail)
+      3. Trade size            (max 15 pts)
+      4. Price change          (max 10 pts)
+      5. Politician track record (max 15 pts)
+      6. Technical alignment   (max 15 pts)
+
     Returns dict with: passed (bool), score (0-100), reasons, fail_reasons
     """
     reasons = []
     fail_reasons = []
     score = 0
 
-    # 1. Reporting delay (max 40 points)
+    # ── Pre-check: Recession Guard ──
+    enable_recession = db.get_setting("enable_recession_guard", "true") == "true"
+    if enable_recession:
+        try:
+            from services.fred_service import is_recession_active
+            blocked, reason, recession_details = is_recession_active()
+            if blocked:
+                return {
+                    "passed": False,
+                    "score": 0,
+                    "reasons": [],
+                    "fail_reasons": [f"RECESSION GUARD: {reason}"],
+                    "price_at_trade": 0,
+                    "price_now": 0,
+                    "price_change_pct": 0,
+                    "technical_signals": {},
+                    "recession_blocked": True,
+                    "recession_details": recession_details,
+                }
+        except Exception as e:
+            logger.warning("Recession guard check failed: %s", e)
+
+    # 1. Reporting delay (max 35 points)
     delay = disclosure.get("reporting_delay_days", 99)
     max_delay = int(db.get_setting("max_reporting_delay_days", config.MAX_REPORTING_DELAY_DAYS))
     if delay <= max_delay:
         if delay <= 1:
-            score += 40
+            score += 35
             reasons.append(f"Filed within {delay} day — excellent")
         elif delay <= 2:
-            score += 30
+            score += 25
             reasons.append(f"Filed within {delay} days — good")
         else:
-            score += 20
+            score += 15
             reasons.append(f"Filed within {delay} days — acceptable")
     else:
         fail_reasons.append(f"Reporting delay {delay} days exceeds max {max_delay}")
 
-    # 2. Buy trades only (pass/fail)
+    # 2. Buy trades only (pass/fail, 10 points)
     tx_type = disclosure.get("tx_type", "")
     if tx_type == "purchase":
         score += 10
@@ -42,23 +72,23 @@ def score_disclosure(disclosure):
     else:
         fail_reasons.append(f"Transaction type '{tx_type}' — only purchases allowed")
 
-    # 3. Trade size (max 20 points)
+    # 3. Trade size (max 15 points)
     amount_min = disclosure.get("amount_min", 0)
     min_amount = int(db.get_setting("min_trade_amount", config.MIN_TRADE_AMOUNT))
     if amount_min >= min_amount:
         if amount_min >= 100000:
-            score += 20
+            score += 15
             reasons.append(f"Large trade (${amount_min:,.0f}+)")
         elif amount_min >= 50000:
-            score += 15
+            score += 10
             reasons.append(f"Significant trade (${amount_min:,.0f}+)")
         else:
-            score += 10
+            score += 7
             reasons.append(f"Trade meets minimum (${amount_min:,.0f}+)")
     else:
         fail_reasons.append(f"Trade amount ${amount_min:,.0f} below minimum ${min_amount:,.0f}")
 
-    # 4. Price change since trade (max 15 points)
+    # 4. Price change since trade (max 10 points)
     ticker = disclosure.get("ticker", "")
     trade_date = disclosure.get("trade_date", "")
     max_change = float(db.get_setting("max_price_change_pct", config.MAX_PRICE_CHANGE_PCT))
@@ -70,7 +100,7 @@ def score_disclosure(disclosure):
         price_change, price_at_trade, price_now = get_price_change_pct(ticker, trade_date)
 
     if abs(price_change) <= max_change:
-        score += 15
+        score += 10
         reasons.append(f"Price change {price_change:+.1f}% since trade — opportunity still open")
     else:
         fail_reasons.append(f"Price already moved {price_change:+.1f}% — opportunity may have passed")
@@ -101,6 +131,32 @@ def score_disclosure(disclosure):
         score += 5
         reasons.append(f"{politician_name} — insufficient history, neutral score")
 
+    # 6. Technical alignment — MACD + 200 EMA (max 15 points)
+    require_tech = db.get_setting("require_technical_confirmation",
+                                  str(config.REQUIRE_TECHNICAL_CONFIRMATION).lower()) == "true"
+    tech = {}
+    if ticker:
+        tech = get_technical_signals(ticker)
+
+    if tech.get("error"):
+        if require_tech:
+            fail_reasons.append(f"Technical data unavailable: {tech['error']}")
+        else:
+            score += 5
+            reasons.append("Technical data unavailable — neutral")
+    elif tech.get("macd_bullish") and tech.get("above_200ema"):
+        score += 15
+        reasons.append(f"MACD bullish + above 200 EMA (${tech.get('price', 0):.0f} > ${tech.get('ema_200', 0):.0f})")
+    elif tech.get("macd_bullish") or tech.get("above_200ema"):
+        score += 8
+        which = "MACD bullish" if tech.get("macd_bullish") else "Above 200 EMA"
+        reasons.append(f"Partial technical alignment ({which})")
+    else:
+        if require_tech:
+            fail_reasons.append("No technical confirmation — MACD bearish and below 200 EMA")
+        else:
+            reasons.append("Technical indicators bearish — 0 points")
+
     # Determine pass/fail
     passed = len(fail_reasons) == 0
 
@@ -112,6 +168,7 @@ def score_disclosure(disclosure):
         "price_at_trade": price_at_trade,
         "price_now": price_now,
         "price_change_pct": price_change,
+        "technical_signals": tech,
     }
 
 

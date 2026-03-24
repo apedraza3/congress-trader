@@ -13,6 +13,8 @@ from services import disclosure_service
 from services import scoring_service
 from services import market_service
 from services import alpaca_service
+from services import fred_service
+from services import backtest_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -82,6 +84,12 @@ def analytics_page():
 @login_required
 def settings_page():
     return render_template("settings.html")
+
+
+@app.route("/backtest")
+@login_required
+def backtest_page():
+    return render_template("backtest.html")
 
 
 # ── API: Disclosures ─────────────────────────────────────────────────
@@ -262,6 +270,39 @@ def api_analytics():
     })
 
 
+# ── API: Recession ────────────────────────────────────────────────────
+
+@app.route("/api/recession-status")
+@login_required
+def api_recession_status():
+    try:
+        blocked, reason, details = fred_service.is_recession_active()
+        return jsonify({
+            "blocked": blocked,
+            "reason": reason,
+            "sahm": details.get("sahm", {}),
+            "unemployment": details.get("unemployment", {}),
+            "enabled": db.get_setting("enable_recession_guard", "true") == "true",
+        })
+    except Exception as e:
+        return jsonify({"blocked": False, "reason": str(e), "error": True})
+
+
+# ── API: Backtest ────────────────────────────────────────────────────
+
+@app.route("/api/backtest", methods=["POST"])
+@login_required
+def api_run_backtest():
+    data = request.get_json() or {}
+    result = backtest_service.run_backtest(
+        start_date=data.get("start_date"),
+        end_date=data.get("end_date"),
+        min_score=data.get("min_score", 70),
+        initial_capital=data.get("initial_capital", 100000),
+    )
+    return jsonify(result)
+
+
 # ── API: Settings ─────────────────────────────────────────────────────
 
 @app.route("/api/settings", methods=["GET"])
@@ -277,6 +318,8 @@ def api_settings_get():
         "hold_days": int(db.get_setting("hold_days", config.HOLD_DAYS)),
         "max_open_positions": int(db.get_setting("max_open_positions", config.MAX_OPEN_POSITIONS)),
         "auto_trade": db.get_setting("auto_trade", "false") == "true",
+        "require_technical_confirmation": db.get_setting("require_technical_confirmation", str(config.REQUIRE_TECHNICAL_CONFIRMATION).lower()) == "true",
+        "enable_recession_guard": db.get_setting("enable_recession_guard", str(config.ENABLE_RECESSION_GUARD).lower()) == "true",
         "alpaca_connected": alpaca_service.is_connected(),
     })
 
@@ -289,10 +332,12 @@ def api_settings_save():
         "max_reporting_delay_days", "min_trade_amount", "max_price_change_pct",
         "min_politician_win_rate", "max_position_pct", "stop_loss_pct",
         "hold_days", "max_open_positions", "auto_trade",
+        "require_technical_confirmation", "enable_recession_guard",
     ]
+    bool_keys = {"auto_trade", "require_technical_confirmation", "enable_recession_guard"}
     for key in allowed:
         if key in data:
-            val = str(data[key]).lower() if key == "auto_trade" else str(data[key])
+            val = str(data[key]).lower() if key in bool_keys else str(data[key])
             db.set_setting(key, val)
     return jsonify({"status": "saved"})
 
@@ -306,11 +351,19 @@ def api_status():
     disc_count = conn.execute("SELECT COUNT(*) as c FROM disclosures").fetchone()["c"]
     trade_count = conn.execute("SELECT COUNT(*) as c FROM trades").fetchone()["c"]
     conn.close()
+    recession_blocked = False
+    try:
+        blocked, _, _ = fred_service.is_recession_active()
+        recession_blocked = blocked
+    except Exception:
+        pass
+
     return jsonify({
         "disclosures": disc_count,
         "trades": trade_count,
         "alpaca_connected": alpaca_service.is_connected(),
         "finnhub_configured": bool(config.FINNHUB_API_KEY),
+        "recession_blocked": recession_blocked,
     })
 
 

@@ -31,3 +31,9 @@ MAX_POSITION_PCT = float(os.getenv("MAX_POSITION_PCT", "5.0"))
 STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "8.0"))
 HOLD_DAYS = int(os.getenv("HOLD_DAYS", "45"))
 MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", "15"))
+
+# Technical analysis
+REQUIRE_TECHNICAL_CONFIRMATION = os.getenv("REQUIRE_TECHNICAL_CONFIRMATION", "true").lower() == "true"
+
+# Recession guard
+ENABLE_RECESSION_GUARD = os.getenv("ENABLE_RECESSION_GUARD", "true").lower() == "true"
