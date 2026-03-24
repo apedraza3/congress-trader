@@ -32,6 +32,11 @@ STOP_LOSS_PCT = float(os.getenv("STOP_LOSS_PCT", "8.0"))
 HOLD_DAYS = int(os.getenv("HOLD_DAYS", "45"))
 MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", "15"))
 
+# AI / Ollama
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+ENABLE_AI_SENTIMENT = os.getenv("ENABLE_AI_SENTIMENT", "true").lower() == "true"
+
 # Technical analysis
 REQUIRE_TECHNICAL_CONFIRMATION = os.getenv("REQUIRE_TECHNICAL_CONFIRMATION", "true").lower() == "true"
 

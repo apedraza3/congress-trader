@@ -12,13 +12,14 @@ logger = logging.getLogger(__name__)
 def score_disclosure(disclosure):
     """Score a disclosure based on risk filters.
 
-    6-factor scoring system (0-100):
-      1. Reporting delay      (max 35 pts)
-      2. Transaction type      (10 pts, pass/fail)
-      3. Trade size            (max 15 pts)
-      4. Price change          (max 10 pts)
-      5. Politician track record (max 15 pts)
-      6. Technical alignment   (max 15 pts)
+    7-factor scoring system (0-100):
+      1. Reporting delay        (max 30 pts)
+      2. Transaction type        (10 pts, pass/fail)
+      3. Trade size              (max 15 pts)
+      4. Price change            (max 10 pts)
+      5. Politician track record (max 10 pts)
+      6. Technical alignment     (max 10 pts)
+      7. AI news sentiment       (max 15 pts)
 
     Returns dict with: passed (bool), score (0-100), reasons, fail_reasons
     """
@@ -42,24 +43,25 @@ def score_disclosure(disclosure):
                     "price_now": 0,
                     "price_change_pct": 0,
                     "technical_signals": {},
+                    "ai_sentiment": {},
                     "recession_blocked": True,
                     "recession_details": recession_details,
                 }
         except Exception as e:
             logger.warning("Recession guard check failed: %s", e)
 
-    # 1. Reporting delay (max 35 points)
+    # 1. Reporting delay (max 30 points)
     delay = disclosure.get("reporting_delay_days", 99)
     max_delay = int(db.get_setting("max_reporting_delay_days", config.MAX_REPORTING_DELAY_DAYS))
     if delay <= max_delay:
         if delay <= 1:
-            score += 35
+            score += 30
             reasons.append(f"Filed within {delay} day — excellent")
         elif delay <= 2:
-            score += 25
+            score += 22
             reasons.append(f"Filed within {delay} days — good")
         else:
-            score += 15
+            score += 14
             reasons.append(f"Filed within {delay} days — acceptable")
     else:
         fail_reasons.append(f"Reporting delay {delay} days exceeds max {max_delay}")
@@ -105,7 +107,7 @@ def score_disclosure(disclosure):
     else:
         fail_reasons.append(f"Price already moved {price_change:+.1f}% — opportunity may have passed")
 
-    # 5. Politician track record (max 15 points)
+    # 5. Politician track record (max 10 points)
     politician_name = disclosure.get("politician_name", "")
     min_win_rate = float(db.get_setting("min_politician_win_rate", config.MIN_POLITICIAN_WIN_RATE))
 
@@ -122,16 +124,15 @@ def score_disclosure(disclosure):
         if politician["total_trades"] > 0:
             win_rate = (politician.get("winning_trades", 0) / politician["total_trades"]) * 100
         if win_rate >= min_win_rate:
-            score += 15
+            score += 10
             reasons.append(f"{politician_name} win rate {win_rate:.0f}%")
         else:
             fail_reasons.append(f"{politician_name} win rate {win_rate:.0f}% below {min_win_rate:.0f}%")
     else:
-        # New politician or not enough history — neutral, don't fail
-        score += 5
+        score += 4
         reasons.append(f"{politician_name} — insufficient history, neutral score")
 
-    # 6. Technical alignment — MACD + 200 EMA (max 15 points)
+    # 6. Technical alignment — MACD + 200 EMA (max 10 points)
     require_tech = db.get_setting("require_technical_confirmation",
                                   str(config.REQUIRE_TECHNICAL_CONFIRMATION).lower()) == "true"
     tech = {}
@@ -142,13 +143,13 @@ def score_disclosure(disclosure):
         if require_tech:
             fail_reasons.append(f"Technical data unavailable: {tech['error']}")
         else:
-            score += 5
+            score += 3
             reasons.append("Technical data unavailable — neutral")
     elif tech.get("macd_bullish") and tech.get("above_200ema"):
-        score += 15
+        score += 10
         reasons.append(f"MACD bullish + above 200 EMA (${tech.get('price', 0):.0f} > ${tech.get('ema_200', 0):.0f})")
     elif tech.get("macd_bullish") or tech.get("above_200ema"):
-        score += 8
+        score += 5
         which = "MACD bullish" if tech.get("macd_bullish") else "Above 200 EMA"
         reasons.append(f"Partial technical alignment ({which})")
     else:
@@ -156,6 +157,52 @@ def score_disclosure(disclosure):
             fail_reasons.append("No technical confirmation — MACD bearish and below 200 EMA")
         else:
             reasons.append("Technical indicators bearish — 0 points")
+
+    # 7. AI news sentiment (max 15 points)
+    ai_sentiment = {}
+    enable_ai = db.get_setting("enable_ai_sentiment",
+                               str(config.ENABLE_AI_SENTIMENT).lower()) == "true"
+    if enable_ai and ticker:
+        try:
+            from services.ai_service import analyze_sentiment
+            ai_sentiment = analyze_sentiment(
+                ticker,
+                politician_name=politician_name,
+                trade_context=f"Trade size: ${amount_min:,.0f}+, filed {delay} days after trade.",
+            )
+
+            if ai_sentiment.get("error"):
+                # AI unavailable — neutral, don't penalize
+                score += 5
+                reasons.append(f"AI sentiment unavailable — neutral ({ai_sentiment['error']})")
+            else:
+                sent_score = ai_sentiment.get("score", 0)  # -100 to +100
+                sentiment = ai_sentiment.get("sentiment", "neutral")
+                summary = ai_sentiment.get("summary", "")
+
+                if sent_score >= 40:
+                    score += 15
+                    reasons.append(f"AI sentiment: {sentiment} ({sent_score:+d}) — {summary}")
+                elif sent_score >= 10:
+                    score += 10
+                    reasons.append(f"AI sentiment: {sentiment} ({sent_score:+d}) — {summary}")
+                elif sent_score >= -20:
+                    score += 5
+                    reasons.append(f"AI sentiment: {sentiment} ({sent_score:+d}) — {summary}")
+                elif sent_score >= -50:
+                    # Bearish — no points but don't fail
+                    reasons.append(f"AI sentiment: {sentiment} ({sent_score:+d}) — {summary}")
+                else:
+                    # Very bearish — fail the trade
+                    fail_reasons.append(f"AI BEARISH ({sent_score:+d}): {summary}")
+
+        except Exception as e:
+            logger.warning("AI sentiment scoring failed: %s", e)
+            score += 5
+            reasons.append("AI sentiment analysis error — neutral")
+    elif not enable_ai:
+        score += 5
+        reasons.append("AI sentiment disabled — neutral")
 
     # Determine pass/fail
     passed = len(fail_reasons) == 0
@@ -169,6 +216,7 @@ def score_disclosure(disclosure):
         "price_now": price_now,
         "price_change_pct": price_change,
         "technical_signals": tech,
+        "ai_sentiment": ai_sentiment,
     }
 
 

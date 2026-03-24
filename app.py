@@ -15,6 +15,7 @@ from services import market_service
 from services import alpaca_service
 from services import fred_service
 from services import backtest_service
+from services import ai_service
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -320,7 +321,11 @@ def api_settings_get():
         "auto_trade": db.get_setting("auto_trade", "false") == "true",
         "require_technical_confirmation": db.get_setting("require_technical_confirmation", str(config.REQUIRE_TECHNICAL_CONFIRMATION).lower()) == "true",
         "enable_recession_guard": db.get_setting("enable_recession_guard", str(config.ENABLE_RECESSION_GUARD).lower()) == "true",
+        "enable_ai_sentiment": db.get_setting("enable_ai_sentiment", str(config.ENABLE_AI_SENTIMENT).lower()) == "true",
+        "ollama_url": config.OLLAMA_URL,
+        "ollama_model": config.OLLAMA_MODEL,
         "alpaca_connected": alpaca_service.is_connected(),
+        "ollama_connected": ai_service.is_available(),
     })
 
 
@@ -332,9 +337,9 @@ def api_settings_save():
         "max_reporting_delay_days", "min_trade_amount", "max_price_change_pct",
         "min_politician_win_rate", "max_position_pct", "stop_loss_pct",
         "hold_days", "max_open_positions", "auto_trade",
-        "require_technical_confirmation", "enable_recession_guard",
+        "require_technical_confirmation", "enable_recession_guard", "enable_ai_sentiment",
     ]
-    bool_keys = {"auto_trade", "require_technical_confirmation", "enable_recession_guard"}
+    bool_keys = {"auto_trade", "require_technical_confirmation", "enable_recession_guard", "enable_ai_sentiment"}
     for key in allowed:
         if key in data:
             val = str(data[key]).lower() if key in bool_keys else str(data[key])
@@ -364,6 +369,7 @@ def api_status():
         "alpaca_connected": alpaca_service.is_connected(),
         "finnhub_configured": bool(config.FINNHUB_API_KEY),
         "recession_blocked": recession_blocked,
+        "ollama_connected": ai_service.is_available(),
     })
 
 
